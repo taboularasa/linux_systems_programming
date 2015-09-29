@@ -24,7 +24,12 @@ void main()
 
     notifyfd = inotify_init();
 
-    if ((fconfig = fopen("monitor.conf", "r")) != NULL) {
+    if ((fconfig = fopen("monitor.conf", "r")) == NULL) {
+        printf("unable to open the config file; giving up!\n");
+        exit(1);
+    }
+
+    while (fgets(watchname, PATH_MAX, fconfig) != NULL) {
         watchname[strlen(watchname) - 1] = '\0';
 
         if (stat(watchname, &sb) < 0) {
@@ -33,12 +38,11 @@ void main()
         }
 
         if (S_ISREG(sb.st_mode)) {
-            int added_watch =
             watchfd = inotify_add_watch(
                 notifyfd,
                 watchname,
                 IN_MODIFY | IN_DELETE_SELF
-            )
+            );
             if (watchfd < 0) {
                 printf("error adding watch for %s\n", watchname);
             } else {
@@ -47,7 +51,27 @@ void main()
                     watchname,
                     watchfd
                 );
+                strcpy(watchednames[watchfd], watchname);
             }
+        } else {
+            printf("%s is not a regular file, ignored\n", watchname);
+        }
+    }
+
+    fout = fopen("monitor.out", "a");
+    while(1) {
+        n = read(notifyfd, eventbuf, BUFSIZE);
+
+        for (p = eventbuf; p < eventbuf + n;) {
+            event = (struct inotify_event *) p;
+            p += sizeof(struct inotify_event) + event->len;
+            if (event->mask & IN_MODIFY) {
+                fprintf(fout, "%s was modified\n", watchednames[event->wd]);
+            }
+            if (event->mask & IN_DELETE_SELF) {
+                fprintf(fout, "%s was deleted\n", watchednames[event->wd]);
+            }
+            fflush(fout);
         }
     }
 }
